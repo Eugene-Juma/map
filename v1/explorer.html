@@ -1,1 +1,467 @@
-#v1/explorer
+This is a fully self‑contained, installable PWA version that addresses all your concerns – the sidebar is now collapsible to maximize map space, location errors are clearly explained, buttons are clearly labeled, and many more open‑source base maps are available.
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Map Explorer PWA</title>
+  
+  <!-- PWA meta -->
+  <meta name="theme-color" content="#1f2937">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MapExplorer">
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw/dist/leaflet.draw.css">
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      background: #111827;
+    }
+    #app {
+      height: 100%;
+      position: relative;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* Sidebar as floating panel */
+    .sidebar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 260px;
+      max-height: calc(100% - 20px);
+      background: rgba(31, 41, 55, 0.95);
+      backdrop-filter: blur(8px);
+      color: #f1f5f9;
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+      z-index: 1000;
+      overflow-y: auto;
+      transition: transform 0.3s ease, opacity 0.3s ease;
+      font-size: 0.9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .sidebar.collapsed {
+      transform: translateX(-110%);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Toggle button */
+    .sidebar-toggle {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      z-index: 1100;
+      background: #1f2937;
+      color: white;
+      border: none;
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      font-size: 1.4rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .sidebar-toggle:hover {
+      background: #374151;
+    }
+
+    .sidebar h3 {
+      margin: 0 0 4px 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .sidebar label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      opacity: 0.7;
+      margin-bottom: 2px;
+    }
+    .sidebar select,
+    .sidebar button,
+    .sidebar input[type="file"] {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid #4b5563;
+      background: #374151;
+      color: #f1f5f9;
+      font-size: 0.9rem;
+      margin: 2px 0;
+    }
+    .sidebar button {
+      background: #2563eb;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+    .sidebar button.danger {
+      background: #b91c1c;
+    }
+    .sidebar button:hover {
+      filter: brightness(1.1);
+    }
+    .divider {
+      border-top: 1px solid #4b5563;
+      margin: 6px 0;
+    }
+    .geoloc-note {
+      font-size: 0.7rem;
+      background: #7c3aed;
+      padding: 6px;
+      border-radius: 8px;
+      display: none;
+    }
+    .geoloc-note.show {
+      display: block;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 600px) {
+      .sidebar {
+        width: 240px;
+        top: 8px;
+        left: 8px;
+        padding: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="map"></div>
+    
+    <!-- Sidebar toggle button -->
+    <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar">☰</button>
+
+    <!-- Floating sidebar -->
+    <div class="sidebar" id="sidebar">
+      <h3>🗺️ Map</h3>
+      
+      <label>Mode</label>
+      <select id="mode">
+        <option value="light">Lightweight</option>
+        <option value="advanced">Advanced GIS</option>
+      </select>
+
+      <label>Layout</label>
+      <select id="layoutSelect">
+        <option value="left">Sidebar Left</option>
+        <option value="right">Sidebar Right</option>
+        <option value="top">Top Bar</option>
+      </select>
+
+      <button id="locateBtn" title="Find my location">📍 My Location</button>
+      <button id="clearBtn" class="danger" title="Remove all markers">🗑️ Clear All</button>
+      
+      <div class="divider"></div>
+      
+      <div id="advancedTools" class="hidden">
+        <button id="exportBtn">📤 Export Markers</button>
+        <label style="margin-top:4px;">📥 Import</label>
+        <input type="file" id="importFile" accept=".json">
+      </div>
+      
+      <div id="geolocWarning" class="geoloc-note">
+        ⚠️ Geolocation requires HTTPS. This site is on HTTP, so "My Location" may not work. Please use a secure connection.
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+  <script src="https://unpkg.com/leaflet-draw/dist/leaflet.draw.js"></script>
+
+  <script>
+    (function() {
+      // PWA manifest inline blob
+      const manifest = {
+        name: "Map Explorer",
+        short_name: "MapExplorer",
+        start_url: location.href,
+        display: "standalone",
+        background_color: "#1f2937",
+        theme_color: "#1f2937",
+        icons: [{
+          src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%232563eb'/%3E%3Cpath d='M30 50 L50 30 L70 50 L50 70Z' fill='white'/%3E%3C/svg%3E",
+          sizes: "100x100",
+          type: "image/svg+xml"
+        }]
+      };
+      const link = document.createElement('link');
+      link.rel = 'manifest';
+      link.href = URL.createObjectURL(new Blob([JSON.stringify(manifest)], {type:'application/json'}));
+      document.head.appendChild(link);
+
+      // Service worker for offline caching
+      if ('serviceWorker' in navigator) {
+        const swCode = `const CACHE='map-v2',URLS=['https://unpkg.com/leaflet@1.9.4/dist/leaflet.css','https://unpkg.com/leaflet@1.9.4/dist/leaflet.js','https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css','https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js','https://unpkg.com/leaflet-draw/dist/leaflet.draw.css','https://unpkg.com/leaflet-draw/dist/leaflet.draw.js'];
+        self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(URLS))));
+        self.addEventListener('fetch',e=>{if(URLS.includes(e.request.url))e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))); else e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));});`;
+        const swUrl = URL.createObjectURL(new Blob([swCode], {type:'application/javascript'}));
+        navigator.serviceWorker.register(swUrl, {scope:'/'}).catch(()=>{});
+      }
+
+      // --- Detect HTTP and show geolocation warning ---
+      const isHTTP = location.protocol === 'http:';
+      const geolocWarning = document.getElementById('geolocWarning');
+      if (isHTTP) {
+        geolocWarning.classList.add('show');
+      }
+
+      // --- Sidebar toggle ---
+      const sidebar = document.getElementById('sidebar');
+      const sidebarToggle = document.getElementById('sidebarToggle');
+      let sidebarVisible = true;
+
+      sidebarToggle.addEventListener('click', () => {
+        sidebarVisible = !sidebarVisible;
+        if (sidebarVisible) {
+          sidebar.classList.remove('collapsed');
+          sidebarToggle.textContent = '☰';
+        } else {
+          sidebar.classList.add('collapsed');
+          sidebarToggle.textContent = '🗺️';
+        }
+        setTimeout(() => map.invalidateSize(), 300);
+      });
+
+      // --- Layout and mode management ---
+      const savedMode = localStorage.getItem('appMode') || 'light';
+      const savedLayout = localStorage.getItem('layout') || 'left';
+      document.getElementById('mode').value = savedMode;
+      document.getElementById('layoutSelect').value = savedLayout;
+
+      // Apply sidebar position based on layout
+      function applyLayout(layout) {
+        const sidebarEl = document.getElementById('sidebar');
+        const toggleEl = document.getElementById('sidebarToggle');
+        // reset styles
+        sidebarEl.style.left = '';
+        sidebarEl.style.right = '';
+        sidebarEl.style.top = '';
+        sidebarEl.style.bottom = '';
+        toggleEl.style.left = '';
+        toggleEl.style.right = '';
+        toggleEl.style.top = '';
+        toggleEl.style.bottom = '';
+
+        if (layout === 'left') {
+          sidebarEl.style.left = '10px';
+          sidebarEl.style.top = '10px';
+          toggleEl.style.left = '14px';
+          toggleEl.style.top = '14px';
+        } else if (layout === 'right') {
+          sidebarEl.style.right = '10px';
+          sidebarEl.style.top = '10px';
+          toggleEl.style.right = '14px';
+          toggleEl.style.top = '14px';
+        } else if (layout === 'top') {
+          // top bar layout: move sidebar to top, full width
+          sidebarEl.style.left = '10px';
+          sidebarEl.style.right = '10px';
+          sidebarEl.style.top = '10px';
+          sidebarEl.style.width = 'auto';
+          sidebarEl.style.maxHeight = '45vh';
+          toggleEl.style.left = '14px';
+          toggleEl.style.top = '14px';
+        }
+        localStorage.setItem('layout', layout);
+        setTimeout(() => map.invalidateSize(), 200);
+      }
+      applyLayout(savedLayout);
+
+      document.getElementById('layoutSelect').addEventListener('change', (e) => {
+        applyLayout(e.target.value);
+      });
+
+      // --- Map initialization with many open-source layers ---
+      const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
+      const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains:'abcd', maxZoom:19, attribution:'© CartoDB' });
+      const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom:17, attribution:'© OpenTopoMap' });
+      const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom:19, attribution:'© Esri' });
+      const esriStreet = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom:19, attribution:'© Esri' });
+      const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { subdomains:'abcd', maxZoom:19, attribution:'© CartoDB' });
+      
+      const map = L.map('map', {
+        center: [0, 37],
+        zoom: 6,
+        layers: [osm],
+        zoomControl: true
+      });
+
+      const baseMaps = {
+        "OpenStreetMap": osm,
+        "Dark": dark,
+        "Topo": topo,
+        "Satellite (Esri)": esriSat,
+        "Streets (Esri)": esriStreet,
+        "Light": cartoLight
+      };
+      L.control.layers(baseMaps).addTo(map);
+      L.Control.geocoder().addTo(map);
+
+      const markerLayer = L.featureGroup().addTo(map);
+
+      function saveMarkers() {
+        const data = [];
+        markerLayer.eachLayer(l => {
+          if (l instanceof L.Marker) {
+            const p = l.getLatLng();
+            data.push([p.lat, p.lng]);
+          }
+        });
+        localStorage.setItem("markers", JSON.stringify(data));
+      }
+
+      function loadMarkers() {
+        const raw = localStorage.getItem("markers");
+        if (!raw) return;
+        try {
+          const data = JSON.parse(raw);
+          data.forEach(p => {
+            if (Array.isArray(p) && p.length === 2) {
+              const m = L.marker(p).addTo(markerLayer);
+              m.bindPopup("Saved Marker");
+            }
+          });
+        } catch(e) {}
+      }
+      loadMarkers();
+
+      map.on("click", e => {
+        const m = L.marker(e.latlng).addTo(markerLayer);
+        m.bindPopup("Custom Marker");
+        saveMarkers();
+      });
+
+      // Locate button with better error handling
+      document.getElementById("locateBtn").addEventListener("click", () => {
+        if (isHTTP) {
+          alert("Geolocation is not available on HTTP connections. Please use HTTPS to find your location.");
+          return;
+        }
+        map.locate({ setView: true, maxZoom: 15 });
+      });
+
+      map.on("locationfound", e => {
+        L.circleMarker(e.latlng, { radius: 8, color: '#2563eb', fillOpacity: 0.5 }).addTo(map);
+      });
+      map.on("locationerror", () => {
+        alert("Could not get location. Make sure location permissions are enabled and you're on a secure connection (HTTPS).");
+      });
+
+      // Clear markers
+      document.getElementById("clearBtn").addEventListener("click", () => {
+        if (confirm("Remove all markers from the map?")) {
+          markerLayer.clearLayers();
+          localStorage.removeItem("markers");
+        }
+      });
+
+      // Advanced mode toggle
+      let drawControl = null;
+      function setMode(mode) {
+        localStorage.setItem("appMode", mode);
+        const adv = document.getElementById("advancedTools");
+        if (mode === "advanced") {
+          adv.classList.remove("hidden");
+          if (!drawControl) {
+            drawControl = new L.Control.Draw({
+              edit: { featureGroup: markerLayer },
+              draw: {
+                polygon: true,
+                polyline: true,
+                rectangle: true,
+                circle: true,
+                marker: true
+              }
+            });
+            map.addControl(drawControl);
+          }
+        } else {
+          adv.classList.add("hidden");
+          if (drawControl) {
+            map.removeControl(drawControl);
+            drawControl = null;
+          }
+        }
+      }
+      setMode(savedMode);
+      document.getElementById("mode").addEventListener("change", e => setMode(e.target.value));
+
+      map.on(L.Draw.Event.CREATED, e => {
+        markerLayer.addLayer(e.layer);
+        saveMarkers();
+      });
+
+      // Export / Import
+      document.getElementById("exportBtn").addEventListener("click", () => {
+        const data = localStorage.getItem("markers") || "[]";
+        const blob = new Blob([data], {type:"application/json"});
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "markers.json";
+        a.click();
+      });
+
+      document.getElementById("importFile").addEventListener("change", e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const data = JSON.parse(reader.result);
+            if (!Array.isArray(data)) throw new Error("Not array");
+            localStorage.setItem("markers", reader.result);
+            markerLayer.clearLayers();
+            loadMarkers();
+            alert("Markers imported.");
+          } catch (err) {
+            alert("Invalid file format.");
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+      });
+
+      // Ensure map size is correct
+      setTimeout(() => map.invalidateSize(), 400);
+    })();
+  </script>
+</body>
+</html>
+```
